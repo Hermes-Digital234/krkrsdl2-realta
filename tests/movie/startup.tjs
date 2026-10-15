@@ -1,0 +1,23 @@
+class Mv extends VideoOverlay {
+  var t0;
+  function Mv(w) { super.VideoOverlay(w); t0 = System.getTickCount(); }
+  function onStatusChanged(s) { try { _osc(s); } catch(e) { Storages.fateDebugLog('HANDLER EXC ' + e.message); System.terminate(); } }
+  function _osc(s) {
+    Storages.fateDebugLog("status " + s + " @" + (System.getTickCount()-t0) + " frame=" + frame + " pos=" + position);
+    if (s == "ready") { setBounds(0,0,800,600); visible = true; play(); }
+    if (s == "stop") { Storages.fateDebugLog("DONE"); System.terminate(); }
+  }
+  function onFrameUpdate(f) { }
+  function onPeriod(r) { Storages.fateDebugLog("period " + r); }
+}
+
+try {
+var w = new Window(); w.setInnerSize(800,600); w.visible = true;
+var l = new Layer(w, null); l.setImageSize(800,600); l.setSize(800,600); l.fillRect(0,0,800,600,0xff203060); l.visible = true;
+w.add(l);
+var m = new Mv(w);
+m.mode = vomMFEVR;
+m.open("t.mp4");
+Storages.fateDebugLog("opened size=" + m.originalWidth + "x" + m.originalHeight + " fps=" + m.fps + " frames=" + m.numberOfFrame + " ms=" + m.totalTime + " aud=" + m.numberOfAudioStream);
+
+} catch(e) { Storages.fateDebugLog('EXC ' + e.message); System.terminate(); }

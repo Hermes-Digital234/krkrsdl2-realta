@@ -1,0 +1,34 @@
+# Rebuilds the Fate port from the newest upstream krkrsdl2 every night.
+# Result: branch "port" = upstream master + fate-port.py applied (force-pushed).
+# If upstream changed code the script anchors on, the job fails and you get a notification.
+name: sync-upstream
+on:
+  schedule: [{ cron: "17 3 * * *" }]
+  workflow_dispatch:
+  push: { branches: [main], paths: ["overlay/**", "tools/**"] }
+permissions: { contents: write }
+jobs:
+  port:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch upstream krkrsdl2
+        run: git clone --recursive https://github.com/krkrsdl2/krkrsdl2 upstream
+      - name: Apply the port
+        run: python3 tools/fate-port.py upstream
+      - name: Build
+        run: |
+          sudo apt-get update && sudo apt-get install -y cmake ninja-build libfreetype-dev libogg-dev libopusfile-dev libwebp-dev
+          cmake -S upstream -B upstream/build -G Ninja -DOPTION_ENABLE_EXTERNAL_PLUGINS=OFF -DSDL_PIPEWIRE=OFF
+          cmake --build upstream/build
+      - name: Self-test
+        run: |
+          cd upstream/build && SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy ./krkrsdl2 "$GITHUB_WORKSPACE/tests/" || true
+          iconv -f UTF-16 -t UTF-8 "$GITHUB_WORKSPACE/tests/result.txt" | tee /dev/stderr | grep -q "ALL PASSED"
+      - name: Publish port branch
+        run: |
+          cd upstream
+          git config user.name "fate-port-bot"; git config user.email "bot@users.noreply.github.com"
+          git checkout -B port && git add -A && git commit -qm "Fate port on upstream $(git rev-parse --short HEAD) ($(date -u +%F))"
+          git remote add out "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git push -f out port:port

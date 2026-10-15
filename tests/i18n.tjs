@@ -1,0 +1,18 @@
+// Minimal stand-in for the game's gettext helper, used only by the self-test.
+// It provides the same global names the port's loadMoFile() wrapper relies on.
+var defaultDomain = "default";
+var defaultContext = "";
+var contextDelimiter = "\x04";
+var domains = %[];
+
+function _x(text, context = defaultContext, domain = defaultDomain)
+{
+	var d = domains[domain];
+	if(d === void) return text;
+	var r = d[context + contextDelimiter + text];
+	return r === void ? text : r;
+}
+function __(text, domain = defaultDomain) { return _x(text, , domain); }
+function _n(single, plural, n, domain = defaultDomain) { return n == 1 ? single : plural; }
+function removeAllMO() { (Dictionary.clear incontextof domains)(); }
+function loadMoFile(moFile, domain = defaultDomain) { /* .po fallback intentionally absent */ }

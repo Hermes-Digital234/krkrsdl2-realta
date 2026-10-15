@@ -1,0 +1,261 @@
+var fails = 0;
+var lines = [];
+function msg(m){ Debug.message(m); lines.add(m); }
+
+function check(name, cond) { msg((cond ? "PASS " : "FAIL ") + name); if(!cond) fails++; }
+function guard(name, f) { try { f(); } catch(e) { msg("FAIL " + name + " threw: " + e.message); fails++; } }
+
+var d = System.exePath + "tdir/";
+guard("createDirectory", function() {
+	check("isExistentDirectory(before)", !Storages.isExistentDirectory(d));
+	Storages.createDirectory(d);
+	Storages.createDirectory(d); // idempotent
+	check("isExistentDirectory(after)", Storages.isExistentDirectory(d) == true);
+	check("nested createDirectory", (Storages.createDirectory(d + "x/y/") , Storages.isExistentDirectory(d + "x/y/")));
+});
+guard("file ops", function() {
+	["hello", "world"].save(d + "a.txt");
+	check("isExistentStorage", Storages.isExistentStorage(d + "a.txt"));
+	check("fstat.size", Storages.fstat(d + "a.txt").size > 0);
+	var mt = Storages.fstat(d + "a.txt").mtime;
+	msg("mtime typeof=" + typeof mt + " val=" + (typeof mt == "Object" ? mt.getTime() : mt));
+	check("fstat.mtime is Date", typeof mt == "Object" && mt.getTime() > 1.6e12);
+	Storages.copyFile(d + "a.txt", d + "b.txt", false);
+	check("copyFile", Storages.isExistentStorage(d + "b.txt"));
+	check("copyFile failIfExists", Storages.copyFile(d + "a.txt", d + "b.txt", true) == false);
+	Storages.moveFile(d + "b.txt", d + "c.txt");
+	check("moveFile", !Storages.isExistentStorage(d + "b.txt") && Storages.isExistentStorage(d + "c.txt"));
+	var l = Storages.dirlist(d);
+	check("dirlist contents", l.count == 3 && l.find("a.txt") >= 0 && l.find("c.txt") >= 0 && l.find("x/") >= 0);
+	var g = getDirList(d);
+	check("getDirList global", g.count == 3);
+	Storages.deleteFile(d + "a.txt"); Storages.deleteFile(d + "c.txt");
+	check("deleteFile", !Storages.isExistentStorage(d + "a.txt"));
+	check("deleteFile missing is harmless", Storages.deleteFile(d + "nope") == false);
+	Storages.removeDirectory(d + "x/y/"); Storages.removeDirectory(d + "x/"); Storages.removeDirectory(d);
+	check("removeDirectory", !Storages.isExistentDirectory(d));
+});
+guard("fstat missing throws", function() {
+	var threw = false;
+	try { Storages.fstat(d + "nonexistent"); } catch(e) { threw = true; }
+	check("fstat missing throws", threw);
+});
+guard("KAGParser", function() {
+	check("KAGParser exists", typeof global.KAGParser != "undefined");
+	var p = new KAGParser();
+	p.loadScenario("test.ks");
+	var tags = [];
+	var t;
+	while((t = p.getNextTag()) !== void) {
+		if(typeof t == "Object") tags.add(t.tagname);
+		else tags.add(string t);
+		if(tags.count > 50) break;
+	}
+	msg("KAG tags: " + tags.join(","));
+	check("KAG parsed 'wait' tag", tags.find("wait") >= 0);
+});
+class KMI extends MenuItem {
+	function KMI(win, cap) { super.MenuItem(win, cap); }
+}
+guard("MenuItem", function() {
+	var root = new KMI(void, "root");
+	var a = new KMI(void, "a"); root.add(a);
+	check("MenuItem add/children", root.children.count == 1 && a.parent === root);
+	root.remove(a);
+	check("MenuItem remove", root.children.count == 0);
+});
+guard("Window.menu", function() {
+	var w = new Window();
+	var m = w.menu;
+	check("Window.menu object", typeof m == "Object");
+	check("Window.menu cached", m === w.menu);
+	m.add(new MenuItem(w, "x"));
+	check("Window.menu add", w.menu.children.count == 1);
+	invalidate w;
+});
+guard("scriptsEx/addFont", function() {
+	var k = Scripts.getObjectKeys(%["a"=>1, "b"=>2]);
+	k.sort("a");
+	check("Scripts.getObjectKeys", k.count == 2 && k[0] == "a" && k[1] == "b");
+	Plugins.link("addFont.dll");
+	check("System.addFont defined", typeof System.addFont == "Object");
+	check("System.addFont missing font is harmless", System.addFont("nonexistent.ttf", true).count == 0);
+});
+guard("fonts", function() {
+	var w = new Window();
+	var l = new Layer(w, null);
+	l.setImageSize(200, 40);
+	l.font.face = "ＭＳ ゴシック";
+	l.drawText(0, 0, "日本語テスト", 0xffffff);
+	var n = l.font.getList(0).count;
+	msg("font list count=" + n);
+	check("fonts discovered", n > 0);
+	check("drawText with game's default face does not throw", true);
+	invalidate l; invalidate w;
+});
+guard("fonts bold/italic", function() {
+	var w = new Window();
+	var l = new Layer(w, null);
+	l.setImageSize(200, 40);
+	l.font.face = "ＭＳ ゴシック";
+	l.font.bold = true;
+	l.drawText(0, 0, "日本語テスト", 0xffffff);
+	check("bold drawText ok", true);
+	l.font.bold = false; l.font.italic = true;
+	l.drawText(0, 0, "日本語テスト", 0xffffff);
+	check("italic drawText ok", true);
+	invalidate l; invalidate w;
+});
+guard("fonts after Font.addFont (default face must still resolve)", function() {
+	var f = Font.addFont("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
+	check("addFont registered a face", f.count > 0);
+	var w = new Window();
+	var l = new Layer(w, null);
+	l.setImageSize(200, 40);
+	l.font.face = "ＭＳ ゴシック";
+	l.drawText(0, 0, "日本語テスト", 0xffffff);
+	check("drawText after addFont ok", true);
+	invalidate l; invalidate w;
+});
+guard("audio decoders", function() {
+	var names = ["t.ogg", "tadpcm.wav", "t.tcw"];
+	for (var i = 0; i < names.length; i++) {
+		var b = new WaveSoundBuffer(null);
+		b.open(names[i]);
+		check(names[i] + " opens, freq=" + b.frequency + " ch=" + b.channels + " totalTime=" + b.totalTime, b.frequency == 44100 && b.channels == 2);
+		b.play();
+		b.stop();
+		invalidate b;
+	}
+});
+guard("gettext .mo", function() {
+	Plugins.link("kri18n.dll");
+	loadMoFile("Translation.mo");
+	check("__ translated", __("こんにちは") == "Hello");
+	check("_x with context", _x("開く", "menu") == "Open");
+	check("untranslated falls back", __("未訳") == "未訳");
+	check("unknown falls back", __("zzz") == "zzz");
+	loadMoFile("DoesNotExist.mo");
+	check("missing .mo/.po is harmless", true);
+	loadMoFile("Settings.mo", "settings");
+	check("missing .mo with domain is harmless", true);
+	removeAllMO();
+	check("removeAllMO clears", __("こんにちは") == "こんにちは");
+});
+var fateClicked = "";
+class FateTestItem extends MenuItem {
+	function FateTestItem(w, c) { super.MenuItem(w, c); }
+	function onClick() { global.fateClicked = caption; }
+}
+function fateFind(bar, kind, k1, v1, k2, v2) {
+	for(var i = 0; i < bar.hits.count; i++) {
+		var a = bar.hits[i].arg;
+		if(a.kind != kind) continue;
+		if(k1 !== void && a[k1] != v1) continue;
+		if(k2 !== void && a[k2] != v2) continue;
+		return bar.hits[i];
+	}
+	return void;
+}
+guard("menu bar overlay", function() {
+	var w = new Window();
+	var pl = new Layer(w, null);
+	pl.setImageSize(1280, 720); pl.setSizeToImageSize(); pl.visible = true;
+	w.setInnerSize(1280, 720);
+	var m = w.menu;
+	var bar = w.__fateMenuBar;
+	check("bar attached to Window.menu", bar !== void);
+	var sys = new FateTestItem(w, "System(&S)"); m.add(sys);
+	sys.add(new FateTestItem(w, "Hide message(&S)"));
+	sys.add(new FateTestItem(w, "-"));
+	var auto = new FateTestItem(w, "Auto mode(&A)"); auto.checked = true; sys.add(auto);
+	var spd = new FateTestItem(w, "Auto mode wait(&D)"); sys.add(spd);
+	var r1 = new FateTestItem(w, "Short(&1)"); r1.group = 1; r1.radio = true; spd.add(r1);
+	var r2 = new FateTestItem(w, "Medium(&2)"); r2.group = 1; r2.radio = true; r2.checked = true; spd.add(r2);
+	var dis = new FateTestItem(w, "Disabled(&X)"); dis.enabled = false; sys.add(dis);
+	m.add(new FateTestItem(w, "Display(&D)"));
+	m.add(new FateTestItem(w, "Language"));
+	m.add(new FateTestItem(w, "Help(&H)"));
+	bar.onTick();                       // creates the layers
+	check("layers created, hot strip shown", bar.ready && bar.strip.visible && !bar.vis.visible);
+	fateFind(bar, "strip") !== void;    // (strip is not in hits)
+	bar.strip.onMouseEnter();           // mouse touches the top edge
+	bar.onRebuild();
+	check("bar shown on hover", bar.vis.visible && !bar.strip.visible && bar.vis.height == 22);
+	var top0 = fateFind(bar, "top", "i", 0);
+	check("top-level hit layers exist", top0 !== void && fateFind(bar, "top", "i", 3) !== void);
+	top0.onMouseEnter(); top0.onMouseDown(5, 5, mbLeft, 0); bar.onRebuild();
+	check("click opens drop-down", bar.levels.count == 1);
+	var row3 = fateFind(bar, "row", "l", 0, "r", 3);
+	row3.onMouseEnter(); bar.onRebuild();
+	check("hover on parent row opens submenu", bar.levels.count == 2);
+	bar.vis.saveLayerImage("/home/claude/fate_test/menu_open.png");
+	var sub0 = fateFind(bar, "row", "l", 1, "r", 0);
+	sub0.onMouseEnter(); sub0.onMouseDown(5, 5, mbLeft, 0); bar.onRebuild();
+	check("click radio -> onClick called", fateClicked == "Short(&1)");
+	check("radio group updated", r1.checked && !r2.checked);
+	check("menu closed after click", bar.levels.count == 0);
+	check("bar hid again after the menu action", !bar.vis.visible && bar.strip.visible);
+	bar.strip.onMouseEnter(); bar.onRebuild();
+	fateFind(bar, "top", "i", 0).onMouseDown(5, 5, mbLeft, 0); bar.onRebuild();
+	var row0 = fateFind(bar, "row", "l", 0, "r", 0);
+	row0.onMouseEnter(); row0.onMouseDown(5, 5, mbLeft, 0); bar.onRebuild();
+	check("simple item click", fateClicked == "Hide message(&S)");
+	bar.strip.onMouseEnter(); bar.onRebuild();
+	fateFind(bar, "top", "i", 0).onMouseDown(5, 5, mbLeft, 0); bar.onRebuild();
+	var dr = fateFind(bar, "row", "l", 0, "r", 4);
+	fateClicked = "";
+	dr.onMouseEnter(); dr.onMouseDown(5, 5, mbLeft, 0); bar.onRebuild();
+	check("disabled item does nothing and keeps menu open", fateClicked == "" && bar.levels.count == 1);
+	bar.catcher.onMouseDown(5, 5, mbLeft, 0); bar.onRebuild();
+	check("outside click closes", bar.levels.count == 0);
+	bar.hitLeave(%[ kind:"bar" ]); bar.onTick();
+	check("bar auto-hides after the mouse leaves", !bar.vis.visible && bar.strip.visible);
+	m.visible = false; bar.layout(true);
+	check("root.visible=false hides everything", !bar.vis.visible && !bar.strip.visible);
+	m.visible = true; bar.pinned = true; bar.layout(true);
+	check("pinned shows bar", bar.vis.visible && bar.vis.height == 22);
+	check("F10 handler chain is callable", (w.onKeyDown(VK_F10, 0, true), !bar.pinned));
+	bar.vis.saveLayerImage("/home/claude/fate_test/menu_bar.png");
+	invalidate w;
+});
+
+try {
+	Plugins.link("drawer.dll"); Plugins.link("filter.dll"); Plugins.link("util.dll");
+	var ew = new Window(); var ep = new Layer(ew, null); ep.setImageSize(40, 30); ep.setSizeToImageSize();
+	var el = new Layer(ew, ep); el.setImageSize(40, 30); el.setSizeToImageSize();
+	el.type = ltAlpha; el.face = dfAlpha; el.fillRect(0,0,40,30,0);
+	try { var tt = el.mainImageBufferForWrite; var t2 = el.mainImageBufferPitch; msg("buf ok " + (tt != 0) + " " + t2 + " " + el.imageWidth); } catch(e2) { msg("prop err " + e2.message); }
+	drawLine(el, 2, 2, 30, 2, 0xff0000);
+	check("drawLine horizontal", (el.getMainPixel(10,2) & 0xffffff) == 0xff0000 && el.getMainPixel(10,4) == 0);
+	drawLine(el, 5, 5, 5, 20, 0x00ff00);
+	check("drawLine vertical", (el.getMainPixel(5,12) & 0xffffff) == 0x00ff00);
+	el.type = ltOpaque; el.fillRect(0,0,40,30,0xffffffff);
+	drawAALine(el, 2, 2, 30, 12, 0x0000ff);
+	var cnt = 0, partial = 0;
+	for(var yy=0; yy<30; yy++) for(var xx=0; xx<40; xx++) { var c = el.getMainPixel(xx,yy); if(c != 0xffffff) cnt++; if(c != 0xffffff && c != 0x0000ff) partial++; }
+	check("drawAALine draws anti-aliased pixels", cnt > 30 && partial > 5);
+	Noise(%[ layer:el, monocro:true ]);
+	var p1 = el.getMainPixel(3,3), p2 = el.getMainPixel(17,9);
+	check("Noise monochrome", ((p1 & 0xff) == ((p1>>8)&0xff)) && p1 != p2);
+	Noise(%[ layer:el, monocro:false ]);
+	var q = el.getMainPixel(3,3);
+	var colourful = false; for(var k=0;k<20;k++){ var c2 = el.getMainPixel(k,5); if(((c2&0xff)!=((c2>>8)&0xff))) colourful = true; }
+	check("Noise colour", colourful);
+	check("util GetFileSize missing = -1", GetFileSize("nonexistent_file.xyz") == -1);
+	check("util ExistDirectory", ExistDirectory(System.exePath) );
+	invalidate ew;
+} catch(e) { check("effects test: " + e.message, false); }
+
+try {
+	var fw = new Window(); var fp = new Layer(fw, null); fp.setImageSize(200, 40); fp.setSizeToImageSize();
+	fp.font.face = ",Sabon Next LT Pro Display"; fp.font.height = 16;
+	fp.drawText(0, 0, "Status", 0xffffff);
+	check("leading-comma missing font falls back (no exception)", true);
+	fp.font.face = ",Nonexistent One,Nonexistent Two"; fp.drawText(0, 0, "Status", 0xffffff);
+	check("two missing candidates fall back", true);
+	invalidate fw;
+} catch(e) { check("missing-font fallback: " + e.message, false); }
+msg("RESULT: " + (fails == 0 ? "ALL PASSED" : fails + " FAILED"));
+lines.save(System.exePath + "result.txt");
+System.terminate();
